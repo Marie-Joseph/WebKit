@@ -1516,15 +1516,44 @@ def riscv64LowerFPBranch(list)
     newList
 end
 
-def riscv64GenerateWASMPlaceholders(list)
+def riscv64LowerAtomic(list)
+    def emitLoadAtomic(newList, node, size)
+        case size
+        when :b, :h, :i
+            suffix = "w"
+        when :q
+            suffix = "d"
+        else
+            raise "Invalid size"
+        end
+
+        newList << Instruction.new(node.codeOrigin, "rv_lr.#{suffix}", node.operands)
+        riscv64LowerEmitMask(newList, node, size, node.operands[1], node.operands[1])
+    end
+
+    def emitStoreAtomic(newList, node, size)
+        case size
+        when :b, :h, :i
+            suffix = "w"
+        when :q
+            suffix = "d"
+        else
+            raise "Invalid size"
+        end
+
+        riscv64LowerEmitMask(newList, node, size, node.operands[1], node.operands[1])
+        newList << Instructions.new(node.codeOrigin, "rv_sc.#{suffix}", node.operands)
+    end
+
     newList = []
     list.each {
         | node |
         if node.is_a? Instruction
             case node.opcode
-            when "loadlinkacqb", "loadlinkacqh", "loadlinkacqi", "loadlinkacqq",
-                 "storecondrelb", "storecondrelh", "storecondreli", "storecondrelq"
-                newList << Instruction.new(node.codeOrigin, "rv_ebreak", [], "WebAssembly placeholder for opcode #{node.opcode}")
+            when /^loadlinkacq(b|h|i|q)$/
+                emitLoadAtomic(newList, node, $1.to_sym)
+            when /^storecondrel(b|h|i|q)$/
+                emitStoreAtomic(newList, node, $1.to_sym)
             else
                 newList << node
             end
@@ -1564,7 +1593,7 @@ class Sequence
         result = riscv64LowerFPCompare(result)
         result = riscv64LowerFPBranch(result)
 
-        result = riscv64GenerateWASMPlaceholders(result)
+        result = riscv64LowerAtomic(result)
 
         result = assignRegistersToTemporaries(result, :gpr, RISCV64_EXTRA_GPRS)
         result = assignRegistersToTemporaries(result, :fpr, RISCV64_EXTRA_FPRS)
